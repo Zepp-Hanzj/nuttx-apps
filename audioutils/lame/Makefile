@@ -102,6 +102,6 @@ ifneq ($(PREFIX),)
 endif
 
 distclean::
-	$(Q)cd $(DST_PATH) && make distclean
+	$(Q)cd $(DST_PATH) && $(MAKE) distclean
 
 include $(APPDIR)/Application.mk

@@ -26,13 +26,9 @@ include $(APPDIR)/Make.defs
 
 SUBDIRS       := $(dir $(wildcard */Makefile))
 CONFIGSUBDIRS := $(filter-out $(dir $(wildcard */Kconfig)),$(SUBDIRS))
-CLEANSUBDIRS  := $(dir $(wildcard *$(DELIM).built))
-CLEANSUBDIRS  += $(dir $(wildcard */.depend))
-CLEANSUBDIRS  += $(dir $(wildcard */.kconfig))
-CLEANSUBDIRS  := $(sort $(CLEANSUBDIRS))
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
-  CONFIGSUBDIRS := $(subst /,\,$(CONFIGSUBDIRS))
-  CLEANSUBDIRS  := $(subst /,\,$(CLEANSUBDIRS))
+  CONFIGSUBDIRS := $(subst /,\\,$(CONFIGSUBDIRS))
+  SUBDIRS       := $(subst /,\\,$(SUBDIRS))
 endif
 
 all: nothing
@@ -40,8 +36,22 @@ all: nothing
 .PHONY: nothing clean distclean
 
 $(foreach SDIR, $(CONFIGSUBDIRS), $(eval $(call SDIR_template,$(SDIR),preconfig)))
-$(foreach SDIR, $(CLEANSUBDIRS), $(eval $(call SDIR_template,$(SDIR),clean)))
-$(foreach SDIR, $(CLEANSUBDIRS), $(eval $(call SDIR_template,$(SDIR),distclean)))
+
+# clean and distclean both use SUBDIRS (all directories with Makefiles).
+# clean on un-built directories is harmless (no-op).  distclean can reach
+# directories whose context:: target created build artefacts even when the
+# build failed before .built or .depend markers were written.
+#
+# The '-' prefix on the recursive make call allows clean/distclean to
+# continue even when individual subdirectories fail (e.g. missing tools
+# like cargo).  TOPDIR is passed so that sub-makes can include
+# $(TOPDIR)/Make.defs and define SDIR_template for further recursion.
+
+$(foreach SDIR, $(SUBDIRS), $(eval .PHONY: $(SDIR)_clean))
+$(foreach SDIR, $(SUBDIRS), $(eval $(SDIR)_clean: ; $$(Q) $$(MAKE) -C $(SDIR) clean APPDIR="$$(APPDIR)" TOPDIR="$$(TOPDIR)"))
+
+$(foreach SDIR, $(SUBDIRS), $(eval .PHONY: $(SDIR)_distclean))
+$(foreach SDIR, $(SUBDIRS), $(eval $(SDIR)_distclean: ; +-$$(Q) $$(MAKE) -C $(SDIR) distclean APPDIR="$$(APPDIR)" TOPDIR="$$(TOPDIR)"))
 
 nothing:
 
@@ -53,10 +63,10 @@ ifneq ($(MENUDESC),)
 endif
 	$(Q) touch .kconfig
 
-clean: $(foreach SDIR, $(CLEANSUBDIRS), $(SDIR)_clean)
+clean: $(foreach SDIR, $(SUBDIRS), $(SDIR)_clean)
 	@:
 
-distclean: $(foreach SDIR, $(CLEANSUBDIRS), $(SDIR)_distclean)
+distclean: $(foreach SDIR, $(SUBDIRS), $(SDIR)_distclean)
 ifneq ($(MENUDESC),)
 	$(call DELFILE, Kconfig)
 endif
