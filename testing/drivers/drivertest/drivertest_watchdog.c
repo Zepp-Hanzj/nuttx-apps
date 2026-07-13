@@ -45,6 +45,7 @@
 #include <time.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/notifier.h>
 #include <nuttx/timers/watchdog.h>
 
 /****************************************************************************
@@ -290,6 +291,141 @@ static int capture_callback(int irq, FAR void *context, FAR void *arg)
   sem_post(&g_semaphore);
   return OK;
 }
+
+#ifdef CONFIG_WATCHDOG_TIMEOUT_NOTIFIER
+
+struct watchdog_notifier_test_nb_s
+{
+  struct notifier_block nb;
+  int                    id;
+};
+
+struct watchdog_notifier_test_ctx_s
+{
+  unsigned int  calls;
+  unsigned long action[8];
+  FAR void     *data[8];
+  int           id[8];
+};
+
+static FAR struct watchdog_notifier_test_ctx_s *g_notifier_test_ctx;
+
+static int watchdog_notifier_test_callback(FAR struct notifier_block *nb,
+                                            unsigned long action,
+                                            FAR void *data)
+{
+  FAR struct watchdog_notifier_test_nb_s *test_nb;
+  unsigned int index;
+
+  test_nb = (FAR struct watchdog_notifier_test_nb_s *)
+            ((FAR char *)nb - offsetof(struct watchdog_notifier_test_nb_s,
+                                       nb));
+  index = g_notifier_test_ctx->calls;
+  if (index < 8)
+    {
+      g_notifier_test_ctx->action[index] = action;
+      g_notifier_test_ctx->data[index] = data;
+      g_notifier_test_ctx->id[index] = test_nb->id;
+    }
+
+  g_notifier_test_ctx->calls++;
+  return OK;
+}
+
+static unsigned long watchdog_notifier_test_expected_action(void)
+{
+#if defined(CONFIG_WATCHDOG_AUTOMONITOR_BY_ONESHOT)
+  return WATCHDOG_KEEPALIVE_BY_ONESHOT;
+#elif defined(CONFIG_WATCHDOG_AUTOMONITOR_BY_TIMER)
+  return WATCHDOG_KEEPALIVE_BY_TIMER;
+#elif defined(CONFIG_WATCHDOG_AUTOMONITOR_BY_WDOG)
+  return WATCHDOG_KEEPALIVE_BY_WDOG;
+#elif defined(CONFIG_WATCHDOG_AUTOMONITOR_BY_WORKER)
+  return WATCHDOG_KEEPALIVE_BY_WORKER;
+#elif defined(CONFIG_WATCHDOG_AUTOMONITOR_BY_CAPTURE)
+  return WATCHDOG_KEEPALIVE_BY_CAPTURE;
+#elif defined(CONFIG_WATCHDOG_AUTOMONITOR_BY_IDLE)
+  return WATCHDOG_KEEPALIVE_BY_IDLE;
+#else
+#  error "An automonitor source must be selected"
+#endif
+}
+
+static void drivertest_watchdog_notifier(FAR void **state)
+{
+  struct watchdog_notifier_test_ctx_s context =
+  {
+    0
+  };
+
+  struct watchdog_notifier_test_nb_s low =
+  {
+    .nb =
+      {
+        .notifier_call = watchdog_notifier_test_callback,
+        .priority = 10
+      },
+    .id = 1
+  };
+
+  struct watchdog_notifier_test_nb_s high =
+  {
+    .nb =
+      {
+        .notifier_call = watchdog_notifier_test_callback,
+        .priority = 20
+      },
+    .id = 2
+  };
+
+  unsigned long expected_action;
+
+  UNUSED(state);
+  expected_action = watchdog_notifier_test_expected_action();
+  g_notifier_test_ctx = &context;
+
+  /* Registration is priority ordered, and duplicate registration of the
+   * same notifier must not result in a duplicate callback.
+   */
+
+  watchdog_notifier_chain_register(&low.nb);
+  watchdog_notifier_chain_register(&low.nb);
+  watchdog_notifier_chain_register(&high.nb);
+
+  watchdog_automonitor_timeout();
+
+  assert_int_equal(context.calls, 2);
+  assert_int_equal(context.id[0], high.id);
+  assert_int_equal(context.id[1], low.id);
+  assert_int_equal(context.action[0], expected_action);
+  assert_int_equal(context.action[1], expected_action);
+  assert_null(context.data[0]);
+  assert_null(context.data[1]);
+
+  /* Every timeout notification is delivered to all currently registered
+   * callbacks.
+   */
+
+  watchdog_automonitor_timeout();
+  assert_int_equal(context.calls, 4);
+  assert_int_equal(context.id[2], high.id);
+  assert_int_equal(context.id[3], low.id);
+
+  /* Unregistering one callback removes only that callback. */
+
+  watchdog_notifier_chain_unregister(&high.nb);
+  watchdog_automonitor_timeout();
+  assert_int_equal(context.calls, 5);
+  assert_int_equal(context.id[4], low.id);
+
+  watchdog_notifier_chain_unregister(&low.nb);
+  watchdog_automonitor_timeout();
+  assert_int_equal(context.calls, 5);
+
+  g_notifier_test_ctx = NULL;
+}
+
+#endif /* CONFIG_WATCHDOG_TIMEOUT_NOTIFIER */
 
 /****************************************************************************
  * Name: drivertest_watchdog_feeding
@@ -549,7 +685,10 @@ int main(int argc, FAR char *argv[])
     cmocka_unit_test_prestate(drivertest_watchdog_interrupts, &wdg_state),
     cmocka_unit_test_prestate(drivertest_watchdog_loop, &wdg_state),
 #if !defined(CONFIG_ARCH_ARMV7A) || !defined(CONFIG_ARCH_HAVE_TRUSTZONE)
-    cmocka_unit_test_prestate(drivertest_watchdog_api, &wdg_state)
+    cmocka_unit_test_prestate(drivertest_watchdog_api, &wdg_state),
+#endif
+#ifdef CONFIG_WATCHDOG_TIMEOUT_NOTIFIER
+    cmocka_unit_test_prestate(drivertest_watchdog_notifier, &wdg_state)
 #endif
   };
 
