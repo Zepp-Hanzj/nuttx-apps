@@ -24,6 +24,14 @@ config TESTING_DRIVER_TEST_SIMPLE
 	bool "Enable cmocka driver simple test"
 	default n
 
+config TESTING_DRIVER_TEST_WATCHDOG_ONLY
+	bool "Build only the watchdog notifier cmocka test"
+	default n
+	depends on WATCHDOG
+	---help---
+		Build only cmocka_driver_watchdog.  This is useful for a minimal
+		simulator validation configuration without unrelated driver tests.
+
 config TESTING_ONESHOT_TEST
 	bool "Enable cmocka oneshot test"
 	default n

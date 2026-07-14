@@ -26,6 +26,11 @@ PRIORITY  = $(CONFIG_TESTING_DRIVER_TEST_PRIORITY)
 STACKSIZE = $(CONFIG_TESTING_DRIVER_TEST_STACKSIZE)
 MODULE    = $(CONFIG_TESTING_DRIVER_TEST)
 
+ifeq ($(CONFIG_TESTING_DRIVER_TEST_WATCHDOG_ONLY),y)
+MAINSRC  += drivertest_watchdog.c
+PROGNAME += cmocka_driver_watchdog
+else
+
 ifneq ($(CONFIG_TESTING_DRIVER_TEST_SIMPLE),)
 MAINSRC  += drivertest_simple.c
 PROGNAME += cmocka_driver_simple
@@ -156,6 +161,8 @@ endif
 ifneq ($(CONFIG_PM_RUNTIME),)
 MAINSRC  += drivertest_pm_runtime.c
 PROGNAME += cmocka_driver_pm_runtime
+endif
+
 endif
 
 include $(APPDIR)/Application.mk

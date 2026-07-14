@@ -21,7 +21,23 @@
 # ##############################################################################
 
 if(CONFIG_TESTING_DRIVER_TEST)
-  if(CONFIG_TESTING_DRIVER_TEST_SIMPLE)
+  if(CONFIG_TESTING_DRIVER_TEST_WATCHDOG_ONLY)
+    nuttx_add_application(
+      NAME
+      cmocka_driver_watchdog
+      PRIORITY
+      ${CONFIG_TESTING_DRIVER_TEST_PRIORITY}
+      STACKSIZE
+      ${CONFIG_TESTING_DRIVER_TEST_STACKSIZE}
+      MODULE
+      ${CONFIG_TESTING_DRIVER_TEST}
+      DEPENDS
+      cmocka
+      SRCS
+      drivertest_watchdog.c)
+  endif()
+  if(NOT CONFIG_TESTING_DRIVER_TEST_WATCHDOG_ONLY)
+   if(CONFIG_TESTING_DRIVER_TEST_SIMPLE)
     nuttx_add_application(
       NAME
       cmocka_driver_simple
@@ -453,4 +469,5 @@ if(CONFIG_TESTING_DRIVER_TEST)
       drivertest_pm_runtime.c)
   endif()
 
+  endif()
 endif()

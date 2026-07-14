@@ -43,6 +43,7 @@
 #include <stdint.h>
 #include <cmocka.h>
 #include <time.h>
+#include <pthread.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/notifier.h>
@@ -58,6 +59,12 @@
 #define WDG_DEFAULT_TIMEOUT 2000
 #define WDG_DEFAULT_TESTCASE 0
 #define WDG_DEFAULT_DEVIATION 20
+#ifndef BOARDIOC_RESETCAUSE_SYS_CHIPPOR
+#  define BOARDIOC_RESETCAUSE_SYS_CHIPPOR 0
+#endif
+#ifndef BOARDIOC_RESETCAUSE_SYS_RWDT
+#  define BOARDIOC_RESETCAUSE_SYS_RWDT 0
+#endif
 #if defined(CONFIG_ARCH_ARMV7A) && defined(CONFIG_ARCH_HAVE_TRUSTZONE)
 #define WDG_COUNT_TESTCASE 3
 #else
@@ -425,6 +432,86 @@ static void drivertest_watchdog_notifier(FAR void **state)
   g_notifier_test_ctx = NULL;
 }
 
+struct watchdog_notifier_race_s
+{
+  struct watchdog_notifier_test_nb_s nb;
+  volatile bool stop;
+};
+
+static volatile unsigned int g_notifier_race_callbacks;
+
+static int watchdog_notifier_race_callback(FAR struct notifier_block *nb,
+                                            unsigned long action,
+                                            FAR void *data)
+{
+  UNUSED(nb);
+  UNUSED(action);
+  UNUSED(data);
+  g_notifier_race_callbacks++;
+  return OK;
+}
+
+static FAR void *watchdog_notifier_race_worker(FAR void *arg)
+{
+  FAR struct watchdog_notifier_race_s *race = arg;
+  unsigned int count;
+
+  for (count = 0; count < 2000 && !race->stop; count++)
+    {
+      watchdog_notifier_chain_register(&race->nb.nb);
+      watchdog_automonitor_timeout();
+      watchdog_notifier_chain_unregister(&race->nb.nb);
+    }
+
+  return NULL;
+}
+
+static void drivertest_watchdog_notifier_race(FAR void **state)
+{
+  struct watchdog_notifier_race_s race =
+    {
+      .nb =
+        {
+          .nb =
+            {
+              .notifier_call = watchdog_notifier_race_callback,
+              .priority = 10
+            },
+          .id = 3
+        }
+    };
+  pthread_t thread;
+  unsigned int count;
+  int ret;
+
+  UNUSED(state);
+  g_notifier_race_callbacks = 0;
+  watchdog_notifier_chain_register(&race.nb.nb);
+  ret = pthread_create(&thread, NULL, watchdog_notifier_race_worker, &race);
+  assert_int_equal(ret, 0);
+  usleep(1000);
+
+  /* Interleave timeout delivery with registration and unregistration from
+   * another task.  The test is successful if the notifier chain remains
+   * usable and no callback observes a non-NULL payload. */
+
+  for (count = 0; count < 2000; count++)
+    {
+      watchdog_automonitor_timeout();
+      if ((count & 0x3f) == 0)
+        {
+          usleep(1000);
+        }
+    }
+
+  race.stop = true;
+  ret = pthread_join(thread, NULL);
+  assert_int_equal(ret, 0);
+  watchdog_notifier_chain_unregister(&race.nb.nb);
+  assert_true(g_notifier_race_callbacks > 0);
+
+}
+
 #endif /* CONFIG_WATCHDOG_TIMEOUT_NOTIFIER */
 
 /****************************************************************************
@@ -441,7 +528,9 @@ static void drivertest_watchdog_feeding(FAR void **state)
   int ret;
   uint32_t start_ms;
   FAR struct wdg_state_s *wdg_state;
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   struct boardioc_reset_cause_s reset_cause;
+#endif
 
   wdg_state = (FAR struct wdg_state_s *)*state;
 
@@ -452,8 +541,10 @@ static void drivertest_watchdog_feeding(FAR void **state)
       return;
     }
 
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   boardctl(BOARDIOC_RESET_CAUSE, (uintptr_t)&reset_cause);
   assert_int_equal(reset_cause.cause, BOARDIOC_RESETCAUSE_SYS_CHIPPOR);
+#endif
 
   dev_fd = wdg_init(wdg_state);
 
@@ -497,7 +588,9 @@ static void drivertest_watchdog_feeding(FAR void **state)
 static void drivertest_watchdog_interrupts(FAR void **state)
 {
   FAR struct wdg_state_s *wdg_state;
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   struct boardioc_reset_cause_s reset_cause;
+#endif
 
   wdg_state = (FAR struct wdg_state_s *)*state;
 
@@ -506,8 +599,10 @@ static void drivertest_watchdog_interrupts(FAR void **state)
       return;
     }
 
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   boardctl(BOARDIOC_RESET_CAUSE, (uintptr_t)&reset_cause);
   assert_int_equal(reset_cause.cause, BOARDIOC_RESETCAUSE_SYS_RWDT);
+#endif
 
   wdg_init(wdg_state);
 
@@ -542,7 +637,9 @@ static void drivertest_watchdog_loop(FAR void **state)
   int ret;
   static struct wdog_s wdog;
   FAR struct wdg_state_s *wdg_state;
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   struct boardioc_reset_cause_s reset_cause;
+#endif
 
   wdg_state = (FAR struct wdg_state_s *)*state;
 
@@ -551,8 +648,10 @@ static void drivertest_watchdog_loop(FAR void **state)
       return;
     }
 
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   boardctl(BOARDIOC_RESET_CAUSE, (uintptr_t)&reset_cause);
   assert_int_equal(reset_cause.cause, BOARDIOC_RESETCAUSE_SYS_RWDT);
+#endif
 
   wdg_init(wdg_state);
 
@@ -581,15 +680,19 @@ static void drivertest_watchdog_api(FAR void **state)
   uint32_t start_ms;
   FAR struct wdg_state_s *wdg_state;
   struct watchdog_status_s status;
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   struct boardioc_reset_cause_s reset_cause;
+#endif
   struct watchdog_capture_s watchdog_capture;
 
   wdg_state = (FAR struct wdg_state_s *)*state;
 
   assert_int_equal(wdg_state->test_case, 3);
 
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
   boardctl(BOARDIOC_RESET_CAUSE, (uintptr_t)&reset_cause);
   assert_int_equal(reset_cause.cause, BOARDIOC_RESETCAUSE_SYS_RWDT);
+#endif
 
   dev_fd = wdg_init(wdg_state);
 
@@ -681,14 +784,17 @@ int main(int argc, FAR char *argv[])
 
   const struct CMUnitTest tests[] =
   {
+#ifndef CONFIG_TESTING_DRIVER_TEST_WATCHDOG_ONLY
     cmocka_unit_test_prestate(drivertest_watchdog_feeding, &wdg_state),
     cmocka_unit_test_prestate(drivertest_watchdog_interrupts, &wdg_state),
     cmocka_unit_test_prestate(drivertest_watchdog_loop, &wdg_state),
 #if !defined(CONFIG_ARCH_ARMV7A) || !defined(CONFIG_ARCH_HAVE_TRUSTZONE)
     cmocka_unit_test_prestate(drivertest_watchdog_api, &wdg_state),
 #endif
+#endif
 #ifdef CONFIG_WATCHDOG_TIMEOUT_NOTIFIER
-    cmocka_unit_test_prestate(drivertest_watchdog_notifier, &wdg_state)
+    cmocka_unit_test_prestate(drivertest_watchdog_notifier, &wdg_state),
+    cmocka_unit_test_prestate(drivertest_watchdog_notifier_race, &wdg_state)
 #endif
   };
 
