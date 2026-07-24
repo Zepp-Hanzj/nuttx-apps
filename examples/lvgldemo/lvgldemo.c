@@ -110,7 +110,7 @@ int main(int argc, FAR char *argv[])
   lv_nuttx_dsc_init(&info);
 
 #ifdef CONFIG_LV_USE_NUTTX_LCD
-  info.fb_path = "/dev/lcd0";
+  info.fb_path = "/dev/fb0";
 #endif
 
 #ifdef CONFIG_INPUT_TOUCHSCREEN
