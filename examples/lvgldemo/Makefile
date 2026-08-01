@@ -31,4 +31,8 @@ MODULE = $(CONFIG_EXAMPLES_LVGLDEMO)
 
 MAINSRC = lvgldemo.c
 
+ifeq ($(CONFIG_EXAMPLES_LVGLDEMO_WIFI),y)
+CSRCS += lvgldemo_wifi.c
+endif
+
 include $(APPDIR)/Application.mk

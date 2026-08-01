@@ -21,6 +21,12 @@
 # ##############################################################################
 
 if(CONFIG_EXAMPLES_LVGLDEMO)
+  set(SRCS lvgldemo.c)
+
+  if(CONFIG_EXAMPLES_LVGLDEMO_WIFI)
+    list(APPEND SRCS lvgldemo_wifi.c)
+  endif()
+
   nuttx_add_application(
     NAME
     lvgldemo
@@ -33,5 +39,5 @@ if(CONFIG_EXAMPLES_LVGLDEMO)
     DEPENDS
     lvgl
     SRCS
-    lvgldemo.c)
+    ${SRCS})
 endif()

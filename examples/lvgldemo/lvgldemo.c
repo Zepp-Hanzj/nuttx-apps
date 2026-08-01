@@ -26,10 +26,14 @@
 
 #include <nuttx/config.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/boardctl.h>
 
 #include <lvgl/lvgl.h>
 #include <lvgl/demos/lv_demos.h>
+#ifdef CONFIG_EXAMPLES_LVGLDEMO_WIFI
+#  include "lvgldemo_wifi.h"
+#endif
 #ifdef CONFIG_LV_USE_NUTTX_LIBUV
 #include <uv.h>
 #endif
@@ -125,6 +129,13 @@ int main(int argc, FAR char *argv[])
       return 1;
     }
 
+#ifdef CONFIG_EXAMPLES_LVGLDEMO_WIFI
+  if (argc > 1 && strcmp(argv[1], "wifi") == 0)
+    {
+      lvgldemo_wifi_create();
+    }
+  else
+#endif
   if (!lv_demos_create(&argv[1], argc - 1))
     {
       lv_demos_show_help();

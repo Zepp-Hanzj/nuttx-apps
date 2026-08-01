@@ -27,4 +27,23 @@ config EXAMPLES_LVGLDEMO_INPUT_DEVPATH
 	---help---
 		The path to the touchscreen device. Default: "/dev/input0"
 
+config EXAMPLES_LVGLDEMO_WIFI
+	bool "Wi-Fi connection screen"
+	default n
+	depends on NET && WIRELESS_WAPI && NETUTILS_DHCPC
+	---help---
+		Add a touch-friendly Wi-Fi scan and connection screen.  Start it
+		with "lvgldemo wifi".  Scanning, association and DHCP run in a
+		worker thread so the LVGL render loop remains responsive.
+
+config EXAMPLES_LVGLDEMO_WIFI_IFNAME
+	string "Wi-Fi interface name"
+	default "wlan0"
+	depends on EXAMPLES_LVGLDEMO_WIFI
+
+config EXAMPLES_LVGLDEMO_WIFI_WORKER_STACKSIZE
+	int "Wi-Fi worker stack size"
+	default 6144
+	depends on EXAMPLES_LVGLDEMO_WIFI
+
 endif # EXAMPLES_LVGLDEMO
