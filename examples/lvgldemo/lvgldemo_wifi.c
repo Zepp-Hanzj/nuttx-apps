@@ -26,8 +26,9 @@
 #define WIFI_IFNAME       CONFIG_EXAMPLES_LVGLDEMO_WIFI_IFNAME
 #define WIFI_SSID_LEN     (WAPI_ESSID_MAX_SIZE + 1)
 #define WIFI_PASSWORD_LEN 65
-#define WIFI_OPTIONS_LEN  1024
+#define WIFI_OPTIONS_LEN  512
 #define WIFI_STATUS_LEN   96
+#define WIFI_MAX_NETWORKS 12
 
 enum wifi_command_e
 {
@@ -44,6 +45,7 @@ struct wifi_demo_s
   char command_ssid[WIFI_SSID_LEN];
   char command_password[WIFI_PASSWORD_LEN];
   char scan_options[WIFI_OPTIONS_LEN];
+  char displayed_options[WIFI_OPTIONS_LEN];
   char status[WIFI_STATUS_LEN];
   unsigned int update_id;
   unsigned int displayed_id;
@@ -149,6 +151,11 @@ static int wifi_scan(int sock)
   for (info = list.head.scan; info != NULL; info = info->next)
     {
       size_t len;
+
+      if (count >= WIFI_MAX_NETWORKS)
+        {
+          break;
+        }
 
       if (!info->has_essid || info->essid[0] == '\0' ||
           wifi_options_contains(options, info->essid))
@@ -370,12 +377,51 @@ static void wifi_button_event(lv_event_t *event)
 
 static void wifi_network_event(lv_event_t *event)
 {
-  char selected[WIFI_SSID_LEN];
+  FAR lv_obj_t *button = lv_event_get_current_target(event);
+  FAR const char *selected;
 
-  lv_dropdown_get_selected_str(g_wifi.networks, selected, sizeof(selected));
-  if (strcmp(selected, "No networks found") != 0)
+  selected = lv_list_get_button_text(g_wifi.networks, button);
+  if (selected != NULL)
     {
       lv_textarea_set_text(g_wifi.ssid, selected);
+    }
+}
+
+static void wifi_update_networks(FAR const char *options)
+{
+  FAR const char *line = options;
+
+  lv_obj_clean(g_wifi.networks);
+  if (options[0] == '\0' || strcmp(options, "No networks found") == 0)
+    {
+      lv_list_add_text(g_wifi.networks, options[0] == '\0' ?
+                       "Tap Scan to discover networks" : options);
+      return;
+    }
+
+  while (*line != '\0')
+    {
+      FAR const char *end = strchr(line, '\n');
+      char ssid[WIFI_SSID_LEN];
+      size_t len = end == NULL ? strlen(line) : (size_t)(end - line);
+      FAR lv_obj_t *button;
+
+      if (len >= sizeof(ssid))
+        {
+          len = sizeof(ssid) - 1;
+        }
+      memcpy(ssid, line, len);
+      ssid[len] = '\0';
+
+      button = lv_list_add_button(g_wifi.networks, LV_SYMBOL_WIFI, ssid);
+      lv_obj_add_event_cb(button, wifi_network_event, LV_EVENT_CLICKED, NULL);
+
+      if (end == NULL)
+        {
+          break;
+        }
+
+      line = end + 1;
     }
 }
 
@@ -421,9 +467,12 @@ static void wifi_ui_timer(lv_timer_t *timer)
     }
 
   lv_label_set_text(g_wifi.status_label, status);
-  if (options[0] != '\0')
+  if (options[0] != '\0' &&
+      strcmp(options, g_wifi.displayed_options) != 0)
     {
-      lv_dropdown_set_options(g_wifi.networks, options);
+      wifi_update_networks(options);
+      strlcpy(g_wifi.displayed_options, options,
+              sizeof(g_wifi.displayed_options));
     }
 }
 
@@ -460,12 +509,10 @@ void lvgldemo_wifi_create(void)
   lv_obj_set_style_text_color(g_wifi.status_label, lv_color_hex(0x3264a8), 0);
 
   wifi_make_label(screen, "Networks", 28, 99);
-  g_wifi.networks = lv_dropdown_create(screen);
-  lv_dropdown_set_options(g_wifi.networks, "Tap Scan to discover networks");
+  g_wifi.networks = lv_list_create(screen);
   lv_obj_set_pos(g_wifi.networks, 28, 122);
-  lv_obj_set_size(g_wifi.networks, 520, 48);
-  lv_obj_add_event_cb(g_wifi.networks, wifi_network_event,
-                      LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_set_size(g_wifi.networks, 520, 142);
+  lv_list_add_text(g_wifi.networks, "Tap Scan to discover networks");
 
   button = lv_button_create(screen);
   lv_obj_set_pos(button, 570, 122);
@@ -476,26 +523,26 @@ void lvgldemo_wifi_create(void)
   lv_obj_add_event_cb(button, wifi_button_event, LV_EVENT_CLICKED,
                       (FAR void *)(uintptr_t)WIFI_CMD_SCAN);
 
-  wifi_make_label(screen, "SSID", 28, 186);
+  wifi_make_label(screen, "SSID", 28, 274);
   g_wifi.ssid = lv_textarea_create(screen);
   lv_textarea_set_one_line(g_wifi.ssid, true);
   lv_textarea_set_max_length(g_wifi.ssid, WAPI_ESSID_MAX_SIZE);
-  lv_obj_set_pos(g_wifi.ssid, 28, 210);
+  lv_obj_set_pos(g_wifi.ssid, 28, 298);
   lv_obj_set_size(g_wifi.ssid, 350, 48);
   lv_obj_add_event_cb(g_wifi.ssid, wifi_textarea_event, LV_EVENT_FOCUSED, NULL);
 
-  wifi_make_label(screen, "Password", 398, 186);
+  wifi_make_label(screen, "Password", 398, 274);
   g_wifi.password = lv_textarea_create(screen);
   lv_textarea_set_one_line(g_wifi.password, true);
   lv_textarea_set_password_mode(g_wifi.password, true);
   lv_textarea_set_max_length(g_wifi.password, WIFI_PASSWORD_LEN - 1);
-  lv_obj_set_pos(g_wifi.password, 398, 210);
+  lv_obj_set_pos(g_wifi.password, 398, 298);
   lv_obj_set_size(g_wifi.password, 362, 48);
   lv_obj_add_event_cb(g_wifi.password, wifi_textarea_event,
                       LV_EVENT_FOCUSED, NULL);
 
   button = lv_button_create(screen);
-  lv_obj_set_pos(button, 570, 278);
+  lv_obj_set_pos(button, 570, 365);
   lv_obj_set_size(button, 190, 54);
   label = lv_label_create(button);
   lv_label_set_text(label, "Connect");
@@ -505,7 +552,7 @@ void lvgldemo_wifi_create(void)
 
   wifi_make_label(screen,
                   "WPA2-PSK and open networks are supported. Leave password blank for open Wi-Fi.",
-                  28, 350);
+                  28, 438);
 
   g_wifi.keyboard = lv_keyboard_create(screen);
   lv_obj_set_size(g_wifi.keyboard, LV_PCT(100), 210);
