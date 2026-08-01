@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include <lvgl/lvgl.h>
@@ -60,12 +61,17 @@ static struct wifi_demo_s g_wifi;
 
 static void wifi_set_status(FAR const char *format, ...)
 {
+  char status[WIFI_STATUS_LEN];
   va_list ap;
 
-  pthread_mutex_lock(&g_wifi.lock);
   va_start(ap, format);
-  vsnprintf(g_wifi.status, sizeof(g_wifi.status), format, ap);
+  vsnprintf(status, sizeof(status), format, ap);
   va_end(ap);
+
+  syslog(LOG_INFO, "Wi-Fi UI: %s\n", status);
+
+  pthread_mutex_lock(&g_wifi.lock);
+  strlcpy(g_wifi.status, status, sizeof(g_wifi.status));
   g_wifi.update_id++;
   pthread_mutex_unlock(&g_wifi.lock);
 }
@@ -300,6 +306,7 @@ static FAR void *wifi_worker(FAR void *arg)
   char ssid[WIFI_SSID_LEN];
   char password[WIFI_PASSWORD_LEN];
   enum wifi_command_e command;
+  bool interface_up;
   int sock;
   int ret;
 
@@ -314,10 +321,12 @@ static FAR void *wifi_worker(FAR void *arg)
   ret = wapi_set_ifup(sock, WIFI_IFNAME);
   if (ret < 0)
     {
+      interface_up = false;
       wifi_set_status("Failed to start %s: %d", WIFI_IFNAME, ret);
     }
   else
     {
+      interface_up = true;
       wifi_set_status("Wi-Fi ready - tap Scan");
     }
 
@@ -333,6 +342,20 @@ static FAR void *wifi_worker(FAR void *arg)
       strlcpy(ssid, g_wifi.command_ssid, sizeof(ssid));
       strlcpy(password, g_wifi.command_password, sizeof(password));
       pthread_mutex_unlock(&g_wifi.lock);
+
+      if (!interface_up && command != WIFI_CMD_NONE)
+        {
+          wifi_set_status("Retrying %s startup...", WIFI_IFNAME);
+          ret = wapi_set_ifup(sock, WIFI_IFNAME);
+          if (ret < 0)
+            {
+              wifi_set_status("Failed to start %s: %d", WIFI_IFNAME, ret);
+              continue;
+            }
+
+          interface_up = true;
+          wifi_set_status("Wi-Fi ready");
+        }
 
       if (command == WIFI_CMD_SCAN)
         {
